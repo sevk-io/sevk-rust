@@ -3,7 +3,8 @@
 use crate::client::Client;
 use crate::error::Error;
 use crate::types::{
-    CreateSegmentRequest, EmptyResponse, ListParams, PaginatedList, Segment, UpdateSegmentRequest,
+    CreateSegmentRequest, EmptyResponse, ListParams, PaginatedList, Segment,
+    SegmentCalculateRequest, SegmentCalculateResponse, UpdateSegmentRequest,
 };
 
 /// Segments API resource
@@ -60,6 +61,34 @@ impl<'a> Segments<'a> {
     pub async fn delete(&self, audience_id: &str, id: &str) -> Result<EmptyResponse, Error> {
         self.client
             .delete(&format!("/audiences/{}/segments/{}", audience_id, id))
+            .await
+    }
+
+    /// Calculate a segment's matching contacts
+    pub async fn calculate(
+        &self,
+        audience_id: &str,
+        segment_id: &str,
+    ) -> Result<SegmentCalculateResponse, Error> {
+        self.client
+            .get(&format!(
+                "/audiences/{}/segments/{}/calculate",
+                audience_id, segment_id
+            ))
+            .await
+    }
+
+    /// Preview how many contacts match given segment rules before saving
+    pub async fn preview(
+        &self,
+        audience_id: &str,
+        data: SegmentCalculateRequest,
+    ) -> Result<SegmentCalculateResponse, Error> {
+        self.client
+            .post(
+                &format!("/audiences/{}/segments/preview", audience_id),
+                &data,
+            )
             .await
     }
 }

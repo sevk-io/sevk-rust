@@ -1,7 +1,3 @@
-> [!WARNING]
-> Sevk is currently in private beta. This SDK is not yet available for public use.
-> Join the waitlist at [sevk.io](https://sevk.io) to get early access.
-
 <p align="center">
   <img src="https://sevk.io/logo.png" alt="Sevk" width="120" />
 </p>
@@ -21,7 +17,7 @@
 
 ```toml
 [dependencies]
-sevk = "0.1"
+sevk = "1.0.0"
 ```
 
 ## Send Email

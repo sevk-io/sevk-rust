@@ -1,6 +1,6 @@
 [package]
 name = "sevk"
-version = "0.0.1"
+version = "1.0.0"
 edition = "2021"
 description = "Rust SDK for Sevk API"
 authors = ["Sevk <dev@sevk.io>"]
@@ -9,6 +9,7 @@ repository = "https://github.com/sevk-io/sevk-rust"
 homepage = "https://sevk.io"
 documentation = "https://docs.rs/sevk"
 readme = "README.md"
+exclude = ["test_email.rs", "examples/", "tests/"]
 keywords = ["sevk", "email", "api", "sdk"]
 categories = ["api-bindings", "email"]
 
@@ -20,6 +21,7 @@ tokio = { version = "1.0", features = ["full"] }
 thiserror = "2.0"
 quick-xml = "0.37"
 regex = "1.11"
+syntect = { version = "5.2", default-features = false, features = ["default-syntaxes", "html", "regex-fancy"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -29,7 +31,3 @@ dotenv = "0.15"
 [lib]
 name = "sevk"
 path = "src/lib.rs"
-
-[[bin]]
-name = "test_email"
-path = "test_email.rs"

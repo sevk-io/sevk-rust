@@ -3,8 +3,8 @@
 use crate::client::Client;
 use crate::error::Error;
 use crate::types::{
-    AddContactsRequest, Audience, CreateAudienceRequest, EmptyResponse, ListParams, PaginatedList,
-    UpdateAudienceRequest,
+    AddContactsRequest, Audience, Contact, CreateAudienceRequest, EmptyResponse, ListParams,
+    PaginatedList, UpdateAudienceRequest,
 };
 
 /// Audiences API resource
@@ -59,6 +59,30 @@ impl<'a> Audiences<'a> {
         let request = AddContactsRequest { contact_ids };
         self.client
             .post(&format!("/audiences/{}/contacts", id), &request)
+            .await
+    }
+
+    /// Remove a contact from an audience
+    pub async fn remove_contact(
+        &self,
+        audience_id: &str,
+        contact_id: &str,
+    ) -> Result<EmptyResponse, Error> {
+        self.client
+            .delete(&format!("/audiences/{}/contacts/{}", audience_id, contact_id))
+            .await
+    }
+
+    /// List contacts in an audience
+    pub async fn list_contacts(
+        &self,
+        audience_id: &str,
+        params: Option<ListParams>,
+    ) -> Result<PaginatedList<Contact>, Error> {
+        let params = params.unwrap_or_default();
+        let query_params = params.to_query_params();
+        self.client
+            .get_with_params(&format!("/audiences/{}/contacts", audience_id), &query_params)
             .await
     }
 }

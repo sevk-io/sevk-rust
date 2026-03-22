@@ -3,7 +3,8 @@
 use crate::client::Client;
 use crate::error::Error;
 use crate::types::{
-    CreateTopicRequest, EmptyResponse, ListParams, PaginatedList, Topic, UpdateTopicRequest,
+    Contact, CreateTopicRequest, EmptyResponse, ListParams, PaginatedList, Topic,
+    TopicAddContactsRequest, UpdateTopicRequest,
 };
 
 /// Topics API resource
@@ -60,6 +61,54 @@ impl<'a> Topics<'a> {
     pub async fn delete(&self, audience_id: &str, id: &str) -> Result<EmptyResponse, Error> {
         self.client
             .delete(&format!("/audiences/{}/topics/{}", audience_id, id))
+            .await
+    }
+
+    /// Add contacts to a topic
+    pub async fn add_contacts(
+        &self,
+        audience_id: &str,
+        topic_id: &str,
+        contact_ids: Vec<String>,
+    ) -> Result<EmptyResponse, Error> {
+        let request = TopicAddContactsRequest { contact_ids };
+        self.client
+            .post(
+                &format!("/audiences/{}/topics/{}/contacts", audience_id, topic_id),
+                &request,
+            )
+            .await
+    }
+
+    /// Remove a contact from a topic
+    pub async fn remove_contact(
+        &self,
+        audience_id: &str,
+        topic_id: &str,
+        contact_id: &str,
+    ) -> Result<EmptyResponse, Error> {
+        self.client
+            .delete(&format!(
+                "/audiences/{}/topics/{}/contacts/{}",
+                audience_id, topic_id, contact_id
+            ))
+            .await
+    }
+
+    /// List contacts for a topic
+    pub async fn list_contacts(
+        &self,
+        audience_id: &str,
+        topic_id: &str,
+        params: Option<ListParams>,
+    ) -> Result<PaginatedList<Contact>, Error> {
+        let params = params.unwrap_or_default();
+        let query_params = params.to_query_params();
+        self.client
+            .get_with_params(
+                &format!("/audiences/{}/topics/{}/contacts", audience_id, topic_id),
+                &query_params,
+            )
             .await
     }
 }

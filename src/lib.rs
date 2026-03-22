@@ -97,4 +97,129 @@ impl Sevk {
     pub fn emails(&self) -> resources::Emails<'_> {
         resources::Emails::new(&self.client)
     }
+
+    /// Access the Webhooks resource
+    pub fn webhooks(&self) -> resources::Webhooks<'_> {
+        resources::Webhooks::new(&self.client)
+    }
+
+    /// Access the Events resource
+    pub fn events(&self) -> resources::Events<'_> {
+        resources::Events::new(&self.client)
+    }
+
+    /// Get project usage and limits
+    pub async fn get_usage(&self) -> Result<Usage, Error> {
+        self.client.get("/limits").await
+    }
+}
+
+/// Project usage and limits data
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Usage {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "audienceLimit")]
+    pub audience_limit: i64,
+    #[serde(rename = "contactLimit")]
+    pub contact_limit: i64,
+    #[serde(rename = "broadcastLimit")]
+    pub broadcast_limit: i64,
+    #[serde(rename = "domainLimit")]
+    pub domain_limit: i64,
+    #[serde(rename = "storageLimit", deserialize_with = "deserialize_string_to_i64")]
+    pub storage_limit: i64,
+    #[serde(rename = "storageUsed", deserialize_with = "deserialize_string_to_i64")]
+    pub storage_used: i64,
+    #[serde(deserialize_with = "deserialize_string_to_f64")]
+    pub balance: f64,
+    #[serde(rename = "emailPrice", deserialize_with = "deserialize_string_to_f64")]
+    pub email_price: f64,
+    #[serde(rename = "emailStats")]
+    pub email_stats: EmailStatsData,
+    #[serde(rename = "emailLimits")]
+    pub email_limits: EmailLimitsData,
+    #[serde(rename = "_count")]
+    pub count: UsageCount,
+}
+
+fn deserialize_string_to_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de;
+    struct StringOrI64Visitor;
+    impl<'de> de::Visitor<'de> for StringOrI64Visitor {
+        type Value = i64;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or integer")
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<i64, E> { Ok(v) }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<i64, E> { Ok(v as i64) }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<i64, E> {
+            v.parse().map_err(de::Error::custom)
+        }
+    }
+    deserializer.deserialize_any(StringOrI64Visitor)
+}
+
+fn deserialize_string_to_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de;
+    struct StringOrF64Visitor;
+    impl<'de> de::Visitor<'de> for StringOrF64Visitor {
+        type Value = f64;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or number")
+        }
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<f64, E> { Ok(v) }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<f64, E> { Ok(v as f64) }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<f64, E> { Ok(v as f64) }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<f64, E> {
+            v.parse().map_err(de::Error::custom)
+        }
+    }
+    deserializer.deserialize_any(StringOrF64Visitor)
+}
+
+/// Email statistics data
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EmailStatsData {
+    pub total: i64,
+    pub marketing: i64,
+    pub transactional: i64,
+}
+
+/// Email limits data
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EmailLimitsData {
+    pub project: ProjectEmailLimits,
+}
+
+/// Project email limits
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProjectEmailLimits {
+    pub monthly: EmailLimitEntry,
+    pub rate: EmailLimitEntry,
+    #[serde(rename = "freeEmails")]
+    pub free_emails: EmailLimitEntry,
+}
+
+/// Email limit entry
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EmailLimitEntry {
+    pub current: i64,
+    pub limit: i64,
+    pub remaining: i64,
+}
+
+/// Resource counts
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UsageCount {
+    pub audiences: i64,
+    pub contacts: i64,
+    pub broadcasts: i64,
+    pub domains: i64,
 }
