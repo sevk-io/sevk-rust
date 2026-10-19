@@ -1,11 +1,98 @@
-//! HTTP client for the Sevk API
-
 use crate::error::Error;
 use reqwest::{Client as HttpClient, Method, Response};
 use serde::{de::DeserializeOwned, Serialize};
+use std::collections::HashMap;
 use std::time::Duration;
 
-/// Options for configuring the Sevk client
+/// Render a JSON value as a plain string (strings without surrounding quotes).
+fn json_value_to_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+fn parse_api_error(response_status: u16, retry_after: Option<u64>, text: String) -> Error {
+    let parsed: Option<serde_json::Value> = serde_json::from_str(&text).ok();
+    let payload = parsed
+        .as_ref()
+        .and_then(|value| value.get("error").filter(|nested| nested.is_object()))
+        .or(parsed.as_ref());
+    let message = payload
+        .and_then(|value| value.get("message"))
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if text.is_empty() {
+                format!("HTTP {response_status}")
+            } else {
+                text.clone()
+            }
+        });
+    let status = response_status;
+    let code = payload
+        .and_then(|value| value.get("code"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("UNKNOWN_ERROR")
+        .to_string();
+    let fields = payload
+        .and_then(|value| value.get("fields"))
+        .and_then(|value| value.as_object())
+        .map(|object| {
+            object
+                .iter()
+                .map(|(key, value)| {
+                    let values = match value {
+                        serde_json::Value::Array(items) => {
+                            items.iter().map(json_value_to_string).collect()
+                        }
+                        _ => vec![json_value_to_string(value)],
+                    };
+                    (key.clone(), values)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let details = payload.and_then(|value| value.get("details")).cloned();
+    let response_body = parsed.unwrap_or(serde_json::Value::String(text));
+
+    Error::Api {
+        status,
+        message,
+        code: Some(code),
+        fields,
+        retry_after,
+        details,
+        response_body,
+    }
+}
+
+fn invalid_success_response(status: u16, response_body: serde_json::Value) -> Error {
+    Error::Api {
+        status,
+        message: "Expected a JSON object response body but received empty or malformed JSON"
+            .to_string(),
+        code: Some("INVALID_RESPONSE".to_string()),
+        fields: HashMap::new(),
+        retry_after: None,
+        details: None,
+        response_body,
+    }
+}
+
+fn parse_retry_after(raw: &str) -> Option<u64> {
+    let value = raw.trim();
+    if value.is_empty() || !value.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|seconds| *seconds <= i32::MAX as u64)
+}
+
+/// Options for configuring the sevk client
 #[derive(Debug, Clone)]
 pub struct SevkOptions {
     /// Base URL for the API
@@ -29,20 +116,32 @@ pub struct Client {
     api_key: String,
     base_url: String,
     http_client: HttpClient,
+    timeout_ms: u64,
 }
 
 impl Client {
-    /// Create a new client with the given API key and options
+    /// Creates the authenticated HTTP client used by all resource handles.
     pub fn new(api_key: &str, options: SevkOptions) -> Self {
         let http_client = HttpClient::builder()
+            .user_agent(concat!("sevk-rust/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_millis(options.timeout))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("Failed to create HTTP client");
 
         Self {
             api_key: api_key.to_string(),
-            base_url: options.base_url,
+            base_url: options.base_url.trim_end_matches('/').to_string(),
             http_client,
+            timeout_ms: options.timeout,
+        }
+    }
+
+    fn transport_error(&self, error: reqwest::Error) -> Error {
+        if error.is_timeout() {
+            Error::Timeout(self.timeout_ms)
+        } else {
+            Error::Request(error)
         }
     }
 
@@ -50,21 +149,37 @@ impl Client {
         let status = response.status().as_u16();
 
         if !response.status().is_success() {
-            let text = response.text().await.unwrap_or_default();
-            return Err(Error::Api {
-                status,
-                message: text,
-            });
+            let retry_after = response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_retry_after);
+            let text = response
+                .text()
+                .await
+                .map_err(|error| self.transport_error(error))?;
+            return Err(parse_api_error(status, retry_after, text));
         }
 
-        // Handle empty responses (e.g. 204 No Content)
-        if status == 204 {
-            let empty_json = serde_json::from_str("{}").unwrap();
-            return Ok(empty_json);
-        }
-
-        let text = response.text().await?;
-        serde_json::from_str(&text).map_err(Error::Json)
+        let text = response
+            .text()
+            .await
+            .map_err(|error| self.transport_error(error))?;
+        let response_body = if status == 204 && text.trim().is_empty() {
+            serde_json::json!({})
+        } else {
+            match serde_json::from_str::<serde_json::Value>(&text) {
+                Ok(value) if value.is_object() => value,
+                _ => {
+                    return Err(invalid_success_response(
+                        status,
+                        serde_json::Value::String(text),
+                    ))
+                }
+            }
+        };
+        serde_json::from_value(response_body.clone())
+            .map_err(|_| invalid_success_response(status, response_body))
     }
 
     async fn request<T: DeserializeOwned>(
@@ -72,6 +187,16 @@ impl Client {
         method: Method,
         path: &str,
         body: Option<impl Serialize>,
+    ) -> Result<T, Error> {
+        self.request_with_headers(method, path, body, &[]).await
+    }
+
+    async fn request_with_headers<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<impl Serialize>,
+        extra_headers: &[(&str, &str)],
     ) -> Result<T, Error> {
         let url = format!("{}{}", self.base_url, path);
 
@@ -81,21 +206,27 @@ impl Client {
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json");
 
-        // Add body if present
-        if let Some(body) = body {
-            request = request.json(&body);
+        for (k, v) in extra_headers {
+            request = request.header(*k, *v);
         }
 
-        let response = request.send().await?;
+        if let Some(body) = body {
+            request = request.body(serde_json::to_vec(&body)?);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|error| self.transport_error(error))?;
         self.handle_response(response).await
     }
 
-    /// Make a GET request
+    /// Sends an authenticated GET request and decodes its JSON response.
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, Error> {
         self.request::<T>(Method::GET, path, None::<()>).await
     }
 
-    /// Make a GET request with query parameters
+    /// Sends an authenticated GET request with serialized query parameters.
     pub async fn get_with_params<T: DeserializeOwned>(
         &self,
         path: &str,
@@ -111,11 +242,11 @@ impl Client {
             format!("?{}", pairs.join("&"))
         };
 
-        self.request::<T>(Method::GET, &format!("{}{}", path, query_string), None::<()>)
+        self.request::<T>(Method::GET, &format!("{path}{query_string}"), None::<()>)
             .await
     }
 
-    /// Make a POST request
+    /// Sends a JSON POST request and decodes its response.
     pub async fn post<T: DeserializeOwned, B: Serialize>(
         &self,
         path: &str,
@@ -124,7 +255,18 @@ impl Client {
         self.request(Method::POST, path, Some(body)).await
     }
 
-    /// Make a PUT request
+    /// Sends a JSON POST request with additional headers for retry control.
+    pub async fn post_with_headers<T: DeserializeOwned, B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+        headers: &[(&str, &str)],
+    ) -> Result<T, Error> {
+        self.request_with_headers(Method::POST, path, Some(body), headers)
+            .await
+    }
+
+    /// Sends a JSON PUT request and decodes its response.
     pub async fn put<T: DeserializeOwned, B: Serialize>(
         &self,
         path: &str,
@@ -133,13 +275,21 @@ impl Client {
         self.request(Method::PUT, path, Some(body)).await
     }
 
-    /// Make a DELETE request
+    /// sends a json patch request and decodes its response.
+    pub async fn patch<T: DeserializeOwned, B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, Error> {
+        self.request(Method::PATCH, path, Some(body)).await
+    }
+
+    /// Sends an authenticated DELETE request and decodes its response.
     pub async fn delete<T: DeserializeOwned>(&self, path: &str) -> Result<T, Error> {
         self.request::<T>(Method::DELETE, path, None::<()>).await
     }
 }
 
-// URL encoding helper
 mod urlencoding {
     pub fn encode(s: &str) -> String {
         let mut result = String::new();
@@ -149,7 +299,7 @@ mod urlencoding {
                 ' ' => result.push_str("%20"),
                 _ => {
                     for byte in c.to_string().as_bytes() {
-                        result.push_str(&format!("%{:02X}", byte));
+                        result.push_str(&format!("%{byte:02X}"));
                     }
                 }
             }

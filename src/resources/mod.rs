@@ -1,25 +1,29 @@
-//! API Resources for the Sevk SDK
-
+mod activity;
 mod audiences;
 mod broadcasts;
 mod contacts;
 mod domains;
 mod emails;
-mod events;
+mod inbound;
+mod outbound;
 mod segments;
 mod subscriptions;
 mod templates;
 mod topics;
+mod usage;
 mod webhooks;
 
+pub use activity::Activity;
 pub use audiences::Audiences;
-pub use broadcasts::Broadcasts;
+pub use broadcasts::{BroadcastTestOptions, Broadcasts};
 pub use contacts::Contacts;
 pub use domains::Domains;
-pub use emails::Emails;
-pub use events::Events;
+pub use emails::{Emails, SendOptions};
+pub use inbound::Inbound;
+pub use outbound::Outbound;
 pub use segments::Segments;
 pub use subscriptions::Subscriptions;
 pub use templates::Templates;
 pub use topics::Topics;
+pub use usage::Usage;
 pub use webhooks::Webhooks;

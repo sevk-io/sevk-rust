@@ -1,10 +1,9 @@
-//! Topics resource
-
 use crate::client::Client;
 use crate::error::Error;
 use crate::types::{
-    Contact, CreateTopicRequest, EmptyResponse, ListParams, PaginatedList, Topic,
-    TopicAddContactsRequest, UpdateTopicRequest,
+    AddContactsToTopicResponse, Contact, CreateTopicRequest, DeleteResponse, ListParams,
+    ListTopicContactsParams, PaginatedList, Topic, TopicAddContactsRequest, TopicMutationResponse,
+    TopicRemoveContactResponse, UpdateTopicRequest,
 };
 
 /// Topics API resource
@@ -13,12 +12,12 @@ pub struct Topics<'a> {
 }
 
 impl<'a> Topics<'a> {
-    /// Create a new Topics resource
+    /// Binds topic operations to an API client.
     pub fn new(client: &'a Client) -> Self {
         Self { client }
     }
 
-    /// List all topics for an audience
+    /// Retrieves topics belonging to an audience with optional filters.
     pub async fn list(
         &self,
         audience_id: &str,
@@ -26,89 +25,77 @@ impl<'a> Topics<'a> {
     ) -> Result<PaginatedList<Topic>, Error> {
         let params = params.unwrap_or_default();
         let query_params = params.to_query_params();
+
         self.client
-            .get_with_params(&format!("/audiences/{}/topics", audience_id), &query_params)
+            .get_with_params(&format!("/audiences/{audience_id}/topics"), &query_params)
             .await
     }
 
-    /// Get a topic by ID
-    pub async fn get(&self, audience_id: &str, id: &str) -> Result<Topic, Error> {
+    /// Adds a subscription topic under an audience.
+    pub async fn create(
+        &self,
+        audience_id: &str,
+        data: CreateTopicRequest,
+    ) -> Result<TopicMutationResponse, Error> {
         self.client
-            .get(&format!("/audiences/{}/topics/{}", audience_id, id))
+            .post(&format!("/audiences/{audience_id}/topics"), &data)
             .await
     }
 
-    /// Create a new topic
-    pub async fn create(&self, audience_id: &str, data: CreateTopicRequest) -> Result<Topic, Error> {
-        self.client
-            .post(&format!("/audiences/{}/topics", audience_id), &data)
-            .await
+    /// Retrieves a topic by ID.
+    pub async fn get(&self, id: &str) -> Result<Topic, Error> {
+        self.client.get(&format!("/topics/{id}")).await
     }
 
-    /// Update a topic
+    /// Changes a topic while preserving omitted fields.
     pub async fn update(
         &self,
-        audience_id: &str,
         id: &str,
         data: UpdateTopicRequest,
-    ) -> Result<Topic, Error> {
-        self.client
-            .put(&format!("/audiences/{}/topics/{}", audience_id, id), &data)
-            .await
+    ) -> Result<TopicMutationResponse, Error> {
+        self.client.put(&format!("/topics/{id}"), &data).await
     }
 
-    /// Delete a topic
-    pub async fn delete(&self, audience_id: &str, id: &str) -> Result<EmptyResponse, Error> {
-        self.client
-            .delete(&format!("/audiences/{}/topics/{}", audience_id, id))
-            .await
+    /// Removes a topic without deleting contacts or its parent audience.
+    pub async fn delete(&self, id: &str) -> Result<DeleteResponse, Error> {
+        self.client.delete(&format!("/topics/{id}")).await
     }
 
-    /// Add contacts to a topic
+    /// Attaches contacts to a topic, ignoring existing memberships.
     pub async fn add_contacts(
         &self,
-        audience_id: &str,
         topic_id: &str,
         contact_ids: Vec<String>,
-    ) -> Result<EmptyResponse, Error> {
+    ) -> Result<AddContactsToTopicResponse, Error> {
         let request = TopicAddContactsRequest { contact_ids };
+
         self.client
-            .post(
-                &format!("/audiences/{}/topics/{}/contacts", audience_id, topic_id),
-                &request,
-            )
+            .post(&format!("/topics/{topic_id}/contacts"), &request)
             .await
     }
 
-    /// Remove a contact from a topic
+    /// Detaches a contact from a topic without deleting it.
     pub async fn remove_contact(
         &self,
-        audience_id: &str,
         topic_id: &str,
         contact_id: &str,
-    ) -> Result<EmptyResponse, Error> {
+    ) -> Result<TopicRemoveContactResponse, Error> {
         self.client
-            .delete(&format!(
-                "/audiences/{}/topics/{}/contacts/{}",
-                audience_id, topic_id, contact_id
-            ))
+            .delete(&format!("/topics/{topic_id}/contacts/{contact_id}"))
             .await
     }
 
-    /// List contacts for a topic
+    /// Retrieves contacts attached to a topic with optional filters.
     pub async fn list_contacts(
         &self,
-        audience_id: &str,
         topic_id: &str,
-        params: Option<ListParams>,
+        params: Option<ListTopicContactsParams>,
     ) -> Result<PaginatedList<Contact>, Error> {
         let params = params.unwrap_or_default();
         let query_params = params.to_query_params();
+
         self.client
-            .get_with_params(
-                &format!("/audiences/{}/topics/{}/contacts", audience_id, topic_id),
-                &query_params,
-            )
+            .get_with_params(&format!("/topics/{topic_id}/contacts"), &query_params)
             .await
     }
 }

@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://sevk.io/logo.png" alt="Sevk" width="120" />
+  <img src="https://sevk.io/logo.png" alt="sevk" width="120" />
 </p>
 
-<h1 align="center">Sevk Rust SDK</h1>
+<h1 align="center">sevk Rust SDK</h1>
 
 <p align="center">
-  Official Rust SDK for <a href="https://sevk.io">Sevk</a> email platform.
+  Official Rust SDK for <a href="https://sevk.io">sevk</a> email platform.
 </p>
 
 <p align="center">
@@ -17,37 +17,39 @@
 
 ```toml
 [dependencies]
-sevk = "1.0.0"
+sevk = "1.1.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
 ## Send Email
 
 ```rust
-use sevk::Sevk;
+use sevk::{SendEmailRequest, Sevk};
 
 #[tokio::main]
 async fn main() {
     let client = Sevk::new("your-api-key");
 
-    client.emails().send(
-        "recipient@example.com",
-        "hello@yourdomain.com",
-        "Hello from Sevk!",
-        "<h1>Welcome!</h1>",
-    ).await.unwrap();
+    client.emails().send(SendEmailRequest {
+        to: "recipient@example.com".into(),
+        from: "hello@yourdomain.com".to_string(),
+        subject: "Hello from sevk!".to_string(),
+        html: Some("<h1>Welcome!</h1>".to_string()),
+        ..Default::default()
+    }).await.unwrap();
 }
 ```
 
 ## Send Email with Markup
 
 ```rust
-use sevk::{Sevk, markup};
+use sevk::{render, SendEmailRequest, Sevk};
 
 #[tokio::main]
 async fn main() {
     let client = Sevk::new("your-api-key");
 
-    let html = markup::render(r#"
+    let html = render(r##"
       <section padding="40px 20px" background-color="#f8f9fa">
         <container max-width="600px">
           <heading level="1" color="#1a1a1a">Welcome!</heading>
@@ -57,14 +59,15 @@ async fn main() {
           </button>
         </container>
       </section>
-    "#);
+    "##).unwrap();
 
-    client.emails().send(
-        "recipient@example.com",
-        "hello@yourdomain.com",
-        "Welcome!",
-        &html,
-    ).await.unwrap();
+    client.emails().send(SendEmailRequest {
+        to: "recipient@example.com".into(),
+        from: "hello@yourdomain.com".to_string(),
+        subject: "Welcome!".to_string(),
+        html: Some(html),
+        ..Default::default()
+    }).await.unwrap();
 }
 ```
 
